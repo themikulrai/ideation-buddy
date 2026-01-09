@@ -98,8 +98,7 @@ export async function analyzeWithAzure(
         },
         body: JSON.stringify({
             messages,
-            max_tokens: 1000,
-            temperature: 0.7
+            max_completion_tokens: 1000
         })
     });
 
@@ -177,5 +176,45 @@ export function stopAllProcessing(): void {
     if (currentAudio) {
         currentAudio.pause();
         currentAudio = null;
+    }
+}
+
+// Test connection to Azure OpenAI
+export async function testConnection(config: {
+    endpoint: string;
+    apiKey: string;
+    deploymentName: string;
+}): Promise<{ success: boolean; message: string }> {
+    const { endpoint, apiKey, deploymentName } = config;
+
+    const url = `${endpoint}/openai/deployments/${deploymentName}/chat/completions?api-version=2024-02-15-preview`;
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'api-key': apiKey
+            },
+            body: JSON.stringify({
+                messages: [{ role: 'user', content: 'Say "Connection successful" in 3 words or less.' }],
+                max_completion_tokens: 20
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            return {
+                success: false,
+                message: error.error?.message || 'Connection failed'
+            };
+        }
+
+        return { success: true, message: 'Connection successful!' };
+    } catch (err) {
+        return {
+            success: false,
+            message: err instanceof Error ? err.message : 'Network error'
+        };
     }
 }

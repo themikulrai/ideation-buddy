@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getConfig, saveConfig, type AzureConfig } from '../../services/azure';
+import { getConfig, saveConfig, testConnection, type AzureConfig } from '../../services/azure';
 import styles from './SettingsModal.module.css';
 
 interface SettingsModalProps {
@@ -16,6 +16,8 @@ export default function SettingsModal({ isOpen, onClose, onSave, canClose = true
     const [speechKey, setSpeechKey] = useState('');
     const [speechRegion, setSpeechRegion] = useState('');
     const [error, setError] = useState('');
+    const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+    const [testMessage, setTestMessage] = useState('');
 
     useEffect(() => {
         if (isOpen) {
@@ -48,6 +50,31 @@ export default function SettingsModal({ isOpen, onClose, onSave, canClose = true
         setError('');
         onSave();
         onClose();
+    };
+
+    const handleTestConnection = async () => {
+        if (!endpoint || !apiKey || !deploymentName) {
+            setError('Please fill in all required fields.');
+            return;
+        }
+
+        setTestStatus('testing');
+        setTestMessage('');
+        setError('');
+
+        const result = await testConnection({
+            endpoint: endpoint.trim(),
+            apiKey: apiKey.trim(),
+            deploymentName: deploymentName.trim()
+        });
+
+        if (result.success) {
+            setTestStatus('success');
+            setTestMessage(result.message);
+        } else {
+            setTestStatus('error');
+            setTestMessage(result.message);
+        }
     };
 
     if (!isOpen) return null;
@@ -132,6 +159,13 @@ export default function SettingsModal({ isOpen, onClose, onSave, canClose = true
                     </div>
 
                     <div className={styles.buttons}>
+                        <button
+                            className={styles.testButton}
+                            onClick={handleTestConnection}
+                            disabled={!endpoint || !apiKey || !deploymentName || testStatus === 'testing'}
+                        >
+                            {testStatus === 'testing' ? '⏳ Testing...' : '🔌 Test Connection'}
+                        </button>
                         {canClose && (
                             <button className={styles.cancelButton} onClick={onClose}>
                                 Cancel
@@ -145,6 +179,11 @@ export default function SettingsModal({ isOpen, onClose, onSave, canClose = true
                             Save Settings
                         </button>
                     </div>
+                    {testStatus !== 'idle' && (
+                        <div className={testStatus === 'success' ? styles.success : styles.error}>
+                            {testMessage}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

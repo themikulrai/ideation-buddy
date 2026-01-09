@@ -154,3 +154,35 @@
     color: #ff6b6b;
     font-size: 13px;
 }
+
+.success {
+    background: rgba(107, 255, 139, 0.1);
+    border: 1px solid rgba(107, 255, 139, 0.3);
+    border-radius: 8px;
+    padding: 12px;
+    color: #6bff8b;
+    font-size: 13px;
+}
+
+.testButton {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.8);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.testButton:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.testButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
