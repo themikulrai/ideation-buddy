@@ -169,7 +169,22 @@ export async function synthesizeSpeech(text: string): Promise<void> {
     }
 
     currentAudio = new Audio(audioUrl);
-    await currentAudio.play();
+
+    // Return a promise that resolves when the audio finishes playing
+    return new Promise<void>((resolve) => {
+        currentAudio!.onended = () => {
+            currentAudio = null;
+            resolve();
+        };
+        currentAudio!.onerror = () => {
+            currentAudio = null;
+            resolve();
+        };
+        currentAudio!.play().catch(() => {
+            currentAudio = null;
+            resolve();
+        });
+    });
 }
 
 export function stopAllProcessing(): void {
