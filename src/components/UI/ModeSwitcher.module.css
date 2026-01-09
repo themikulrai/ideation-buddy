@@ -1,0 +1,44 @@
+.container {
+    position: absolute;
+    top: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
+    padding: 0.25rem;
+    z-index: 100;
+    width: fit-content;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.option {
+    position: relative;
+    z-index: 2;
+    padding: 0.5rem 1.5rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-color);
+    opacity: 0.6;
+    transition: opacity 0.3s;
+    min-width: 100px;
+}
+
+.active {
+    opacity: 1;
+}
+
+.indicator {
+    position: absolute;
+    top: 0.25rem;
+    left: 0.25rem;
+    bottom: 0.25rem;
+    width: calc(50% - 0.25rem);
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1;
+}

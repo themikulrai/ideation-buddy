@@ -1,0 +1,51 @@
+.container {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    display: flex;
+    justify-content: center;
+    padding: 2rem 0;
+    padding-bottom: 10rem;
+    /* Space for floating bar */
+}
+
+.document {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.page {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    border-radius: 4px;
+    overflow: hidden;
+    background-color: white;
+    /* Ensure PDF pages have white background */
+}
+
+.pageWrapper {
+    position: relative;
+}
+
+.placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-color);
+    opacity: 0.5;
+}
+
+.error {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #ef4444;
+    gap: 0.5rem;
+    z-index: 50;
+    /* Ensure visible on top */
+}
