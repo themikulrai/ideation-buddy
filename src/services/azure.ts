@@ -48,16 +48,78 @@ export const clearCredentials = (): void => {
     localStorage.removeItem(STORAGE_KEYS.BASE_URL);
 };
 
-// Get endpoints dynamically based on stored credentials
+// Default deployment names and API version
+const DEFAULT_DEPLOYMENTS = {
+    STT: "gpt-4o-transcribe-diarize",
+    TTS: "gpt-4o-mini-tts",
+    CHAT: "gpt-5.2-chat",
+    API_VERSION: "2025-04-01-preview"
+};
+
+// Helper to determine auth headers based on key format
+const getAuthHeaders = (): Record<string, string> => {
+    const apiKey = getApiKey();
+    // Heuristic: Standard Azure keys are 32 chars (hex). 
+    // If significantly longer (like the 88-char legacy key seen in source), assume it's a token needing Bearer
+    if (apiKey.length > 40) {
+        return { "Authorization": `Bearer ${apiKey}` };
+    }
+    return { "api-key": apiKey };
+};
+
+// Test credential connection
+export const testConnection = async (apiKey: string, baseUrl: string, chatDeployment: string): Promise<boolean> => {
+    try {
+        const cleanedUrl = cleanBaseUrl(baseUrl);
+        const headers: Record<string, string> = apiKey.length > 40
+            ? { "Authorization": `Bearer ${apiKey}` }
+            : { "api-key": apiKey };
+        headers['Content-Type'] = 'application/json';
+
+        // Try a minimal chat completion - this verifies Key, Endpoint, Deployment
+        const response = await fetch(`${cleanedUrl}/openai/deployments/${chatDeployment}/chat/completions?api-version=2024-12-01-preview`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                messages: [{ role: "user", content: "Test" }],
+                max_tokens: 1
+            })
+        });
+
+        return response.ok;
+    } catch (e) {
+        console.error("Connection test failed:", e);
+        return false;
+    }
+};
+
+// Storage key for deployments
+const DEPLOYMENT_STORAGE_KEY = 'azure_deployments';
+
+export const getStoredDeployments = () => {
+    const stored = localStorage.getItem(DEPLOYMENT_STORAGE_KEY);
+    const parsed = stored ? JSON.parse(stored) : {};
+    return { ...DEFAULT_DEPLOYMENTS, ...parsed };
+};
+
+export const setStoredDeployments = (deployments: typeof DEFAULT_DEPLOYMENTS) => {
+    localStorage.setItem(DEPLOYMENT_STORAGE_KEY, JSON.stringify(deployments));
+};
+
+// Get endpoints dynamically based on stored credentials and deployments
+// API versions are per-model based on Azure documentation:
+// - STT/TTS use 2025-03-01-preview
+// - Chat uses 2024-12-01-preview
 const getEndpoints = () => {
     const credentials = getStoredCredentials();
     const rawBaseUrl = credentials?.baseUrl || DEFAULT_BASE_URL;
     const baseUrl = cleanBaseUrl(rawBaseUrl);
+    const deployments = getStoredDeployments();
 
     return {
-        STT: `${baseUrl}/openai/deployments/gpt-4o-transcribe-diarize/audio/transcriptions?api-version=2025-03-01-preview`,
-        TTS: `${baseUrl}/openai/deployments/gpt-4o-mini-tts/audio/speech?api-version=2025-03-01-preview`,
-        CHAT: `${baseUrl}/openai/deployments/gpt-5.2-chat/chat/completions?api-version=2025-04-01-preview`
+        STT: `${baseUrl}/openai/deployments/${deployments.STT}/audio/transcriptions?api-version=2025-03-01-preview`,
+        TTS: `${baseUrl}/openai/deployments/${deployments.TTS}/audio/speech?api-version=2025-03-01-preview`,
+        CHAT: `${baseUrl}/openai/deployments/${deployments.CHAT}/chat/completions?api-version=2024-12-01-preview`
     };
 };
 
@@ -99,9 +161,7 @@ export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
 
     const response = await fetch(getEndpoints().STT, {
         method: "POST",
-        headers: {
-            "api-key": getApiKey()
-        },
+        headers: getAuthHeaders(),
         body: formData
     });
 
@@ -129,7 +189,7 @@ export const synthesizeSpeech = async (text: string): Promise<void> => {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "api-key": getApiKey()
+                ...getAuthHeaders()
             },
             body: JSON.stringify({
                 model: "gpt-4o-mini-tts",
@@ -264,7 +324,7 @@ export const analyzeWithAzure = async (
         method: "POST",
         headers: {
             "Content-Type": "application/json",
-            "api-key": getApiKey()
+            ...getAuthHeaders()
         },
         body: JSON.stringify(payload),
         signal: currentAbortController.signal
