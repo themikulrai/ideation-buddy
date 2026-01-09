@@ -4,8 +4,8 @@ import PDFLayer, { type PDFLayerHandle } from './components/Whiteboard/PDFLayer'
 import FloatingBar from './components/UI/FloatingBar';
 import ModeSwitcher from './components/UI/ModeSwitcher';
 import Toolbar from './components/UI/Toolbar';
-import SettingsModal, { SettingsButton } from './components/UI/SettingsModal';
-import { analyzeWithAzure, synthesizeSpeech, stopAllProcessing, hasCredentials, type ChatMessage } from './services/azure';
+import SettingsModal from './components/UI/SettingsModal';
+import { analyzeWithAzure, synthesizeSpeech, stopAllProcessing, isConfigured, type ChatMessage } from './services/azure';
 import type { PDFAnnotations } from './types/annotationTypes';
 import styles from './components/Whiteboard/PDFViewer.module.css';
 import './App.css';
@@ -18,16 +18,17 @@ function App() {
   const [pdfAnnotations, setPdfAnnotations] = useState<PDFAnnotations>({});
   const [isProcessing, setIsProcessing] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<ChatMessage[]>([]);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [apiConfigured, setApiConfigured] = useState(false);
   const canvasRef = useRef<CanvasHandle>(null);
   const pdfLayerRef = useRef<PDFLayerHandle>(null);
 
+  // Check if API is configured on mount
   useEffect(() => {
-    // Check for credentials on mount
-    if (!hasCredentials()) {
-      setIsSettingsOpen(true);
-    }
+    setApiConfigured(isConfigured());
   }, []);
+
+
 
   // Helper to get the appropriate image based on current mode
   const getCapturedImage = (): string => {
@@ -125,14 +126,6 @@ function App() {
     <div className="app-container">
       <ModeSwitcher mode={mode} onSwitch={setMode} />
 
-      <SettingsButton onClick={() => setIsSettingsOpen(true)} />
-
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        onSave={() => console.log('Settings saved')}
-      />
-
       <div className="content-area">
         {/* Whiteboard background - only in whiteboard mode */}
         {mode === 'whiteboard' && <div className="whiteboard-bg" />}
@@ -205,6 +198,35 @@ function App() {
         onClearContext={handleClearConversation}
         isProcessing={isProcessing}
         hasContext={conversationHistory.length > 0}
+      />
+
+      {/* Settings button */}
+      <button
+        onClick={() => setShowSettings(true)}
+        style={{
+          position: 'fixed',
+          top: '16px',
+          right: '16px',
+          background: 'rgba(255, 255, 255, 0.1)',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          borderRadius: '8px',
+          padding: '8px 12px',
+          color: '#fff',
+          cursor: 'pointer',
+          fontSize: '14px',
+          zIndex: 100,
+          backdropFilter: 'blur(8px)',
+        }}
+      >
+        ⚙️ Settings
+      </button>
+
+      {/* Settings modal - shows on first visit or when user clicks settings */}
+      <SettingsModal
+        isOpen={showSettings || !apiConfigured}
+        onClose={() => setShowSettings(false)}
+        onSave={() => setApiConfigured(true)}
+        canClose={apiConfigured}
       />
     </div>
   );

@@ -1,180 +1,146 @@
 import { useState, useEffect } from 'react';
-import { getStoredCredentials, setCredentials, testConnection, getStoredDeployments, setStoredDeployments } from '../../services/azure';
+import { getConfig, saveConfig, type AzureConfig } from '../../services/azure';
 import styles from './SettingsModal.module.css';
 
 interface SettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSave: () => void;
+    canClose?: boolean;
 }
 
-export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModalProps) {
+export default function SettingsModal({ isOpen, onClose, onSave, canClose = true }: SettingsModalProps) {
+    const [endpoint, setEndpoint] = useState('');
     const [apiKey, setApiKey] = useState('');
-    const [baseUrl, setBaseUrl] = useState('');
-    const [deployments, setDeployments] = useState(getStoredDeployments());
-    const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [deploymentName, setDeploymentName] = useState('');
+    const [speechKey, setSpeechKey] = useState('');
+    const [speechRegion, setSpeechRegion] = useState('');
+    const [error, setError] = useState('');
 
     useEffect(() => {
         if (isOpen) {
-            const stored = getStoredCredentials();
-            const storedDeps = getStoredDeployments();
-            if (stored) {
-                setApiKey(stored.apiKey);
-                setBaseUrl(stored.baseUrl);
-            } else {
-                setApiKey('');
-                setBaseUrl('https://YOUR-RESOURCE.cognitiveservices.azure.com');
+            const config = getConfig();
+            if (config) {
+                setEndpoint(config.endpoint || '');
+                setApiKey(config.apiKey || '');
+                setDeploymentName(config.deploymentName || '');
+                setSpeechKey(config.speechKey || '');
+                setSpeechRegion(config.speechRegion || '');
             }
-            setDeployments(storedDeps);
-            setTestStatus('idle');
         }
     }, [isOpen]);
 
     const handleSave = () => {
-        if (apiKey.trim() && baseUrl.trim()) {
-            setCredentials(apiKey.trim(), baseUrl.trim());
-            setStoredDeployments(deployments);
-            onSave();
-            onClose();
+        if (!endpoint || !apiKey || !deploymentName) {
+            setError('Please fill in all required fields.');
+            return;
         }
-    };
 
-    const handleTestConnection = async () => {
-        if (!apiKey.trim() || !baseUrl.trim()) return;
-        setTestStatus('testing');
-        const success = await testConnection(
-            apiKey.trim(),
-            baseUrl.trim(),
-            deployments.CHAT
-        );
-        setTestStatus(success ? 'success' : 'error');
-    };
+        const config: AzureConfig = {
+            endpoint: endpoint.trim(),
+            apiKey: apiKey.trim(),
+            deploymentName: deploymentName.trim(),
+            speechKey: speechKey.trim() || undefined,
+            speechRegion: speechRegion.trim() || undefined,
+        };
 
-    const canSave = apiKey.trim().length > 0 && baseUrl.trim().length > 0;
+        saveConfig(config);
+        setError('');
+        onSave();
+        onClose();
+    };
 
     if (!isOpen) return null;
 
     return (
-        <div className={styles.overlay} onClick={onClose}>
+        <div className={styles.overlay} onClick={canClose ? onClose : undefined}>
             <div className={styles.modal} onClick={e => e.stopPropagation()}>
-                <h2 className={styles.title}>
-                    ⚙️ Azure OpenAI Settings
-                </h2>
+                <h2 className={styles.title}>Azure OpenAI Settings</h2>
                 <p className={styles.subtitle}>
-                    Enter your Azure OpenAI credentials. They'll be stored locally in your browser.
+                    Enter your Azure OpenAI credentials to use this app. Your keys are stored locally in your browser.
                 </p>
 
-                <div className={styles.form}>
-                    <div className={styles.field}>
-                        <label className={styles.label}>API Key</label>
-                        <input
-                            type="password"
-                            className={styles.input}
-                            value={apiKey}
-                            onChange={e => setApiKey(e.target.value)}
-                            placeholder="Enter your Azure OpenAI API key"
-                            autoFocus
-                        />
-                    </div>
+                {error && <div className={styles.error}>{error}</div>}
 
-                    <div className={styles.field}>
-                        <label className={styles.label}>Endpoint URL</label>
+                <div className={styles.form}>
+                    <div className={styles.fieldGroup}>
+                        <label className={styles.label}>
+                            Endpoint <span className={styles.required}>*</span>
+                        </label>
                         <input
                             type="text"
                             className={styles.input}
-                            value={baseUrl}
-                            onChange={e => setBaseUrl(e.target.value)}
-                            placeholder="https://your-resource.cognitiveservices.azure.com"
+                            placeholder="https://your-resource.openai.azure.com"
+                            value={endpoint}
+                            onChange={e => setEndpoint(e.target.value)}
                         />
-                        <span className={styles.hint}>
-                            Your Azure OpenAI resource endpoint
-                        </span>
                     </div>
 
-                    <div className={styles.testSection}>
-                        <button
-                            type="button"
-                            className={`${styles.testButton} ${testStatus === 'success' ? styles.success : testStatus === 'error' ? styles.error : ''}`}
-                            onClick={handleTestConnection}
-                            disabled={!canSave || testStatus === 'testing'}
-                        >
-                            {testStatus === 'testing' ? 'Testing...' :
-                                testStatus === 'success' ? '✅ Connection Verified' :
-                                    testStatus === 'error' ? '❌ Connection Failed' :
-                                        'Test Connection'}
-                        </button>
-                        {testStatus === 'error' && <p className={styles.errorText}>Check your Key and Endpoint. Make sure your resource is accessible.</p>}
+                    <div className={styles.fieldGroup}>
+                        <label className={styles.label}>
+                            API Key <span className={styles.required}>*</span>
+                        </label>
+                        <input
+                            type="password"
+                            className={styles.input}
+                            placeholder="Enter your API key"
+                            value={apiKey}
+                            onChange={e => setApiKey(e.target.value)}
+                        />
                     </div>
 
-                    <div className={styles.advancedToggle} onClick={() => setShowAdvanced(!showAdvanced)}>
-                        <span>{showAdvanced ? '▼' : '▶'} Advanced: Deployment Names</span>
+                    <div className={styles.fieldGroup}>
+                        <label className={styles.label}>
+                            Deployment Name <span className={styles.required}>*</span>
+                        </label>
+                        <input
+                            type="text"
+                            className={styles.input}
+                            placeholder="gpt-4o"
+                            value={deploymentName}
+                            onChange={e => setDeploymentName(e.target.value)}
+                        />
                     </div>
 
-                    {showAdvanced && (
-                        <div className={styles.advancedSection}>
-                            <div className={styles.field}>
-                                <label className={styles.label}>Chat Deployment</label>
-                                <input
-                                    type="text"
-                                    className={styles.input}
-                                    value={deployments.CHAT}
-                                    onChange={e => setDeployments({ ...deployments, CHAT: e.target.value })}
-                                    placeholder="e.g. gpt-4o"
-                                />
-                            </div>
-                            <div className={styles.field}>
-                                <label className={styles.label}>STT Deployment</label>
-                                <input
-                                    type="text"
-                                    className={styles.input}
-                                    value={deployments.STT}
-                                    onChange={e => setDeployments({ ...deployments, STT: e.target.value })}
-                                    placeholder="e.g. whisper"
-                                />
-                            </div>
-                            <div className={styles.field}>
-                                <label className={styles.label}>TTS Deployment</label>
-                                <input
-                                    type="text"
-                                    className={styles.input}
-                                    value={deployments.TTS}
-                                    onChange={e => setDeployments({ ...deployments, TTS: e.target.value })}
-                                    placeholder="e.g. tts"
-                                />
-                            </div>
-                            <div className={styles.field}>
-                                <label className={styles.label}>API Version</label>
-                                <input
-                                    type="text"
-                                    className={styles.input}
-                                    value={deployments.API_VERSION || ''}
-                                    onChange={e => setDeployments({
-                                        ...deployments,
-                                        API_VERSION: e.target.value
-                                    })}
-                                    placeholder="e.g. 2024-05-01-preview"
-                                />
-                                <span className={styles.hint}>
-                                    Target API version for your region/model
-                                </span>
-                            </div>
-                        </div>
-                    )}
+                    <hr className={styles.divider} />
+                    <p className={styles.sectionLabel}>Speech (Optional)</p>
+
+                    <div className={styles.fieldGroup}>
+                        <label className={styles.label}>
+                            Speech Key <span className={styles.optional}>(optional)</span>
+                        </label>
+                        <input
+                            type="password"
+                            className={styles.input}
+                            placeholder="For text-to-speech"
+                            value={speechKey}
+                            onChange={e => setSpeechKey(e.target.value)}
+                        />
+                    </div>
+
+                    <div className={styles.fieldGroup}>
+                        <label className={styles.label}>
+                            Speech Region <span className={styles.optional}>(optional)</span>
+                        </label>
+                        <input
+                            type="text"
+                            className={styles.input}
+                            placeholder="e.g., eastus"
+                            value={speechRegion}
+                            onChange={e => setSpeechRegion(e.target.value)}
+                        />
+                    </div>
 
                     <div className={styles.buttons}>
+                        {canClose && (
+                            <button className={styles.cancelButton} onClick={onClose}>
+                                Cancel
+                            </button>
+                        )}
                         <button
-                            type="button"
-                            className={`${styles.button} ${styles.cancelButton}`}
-                            onClick={onClose}
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            className={`${styles.button} ${styles.saveButton}`}
+                            className={styles.saveButton}
                             onClick={handleSave}
-                            disabled={!canSave}
+                            disabled={!endpoint || !apiKey || !deploymentName}
                         >
                             Save Settings
                         </button>
@@ -182,14 +148,5 @@ export default function SettingsModal({ isOpen, onClose, onSave }: SettingsModal
                 </div>
             </div>
         </div>
-    );
-}
-
-// Settings button component for opening the modal
-export function SettingsButton({ onClick }: { onClick: () => void }) {
-    return (
-        <button className={styles.settingsButton} onClick={onClick} title="Settings">
-            ⚙️
-        </button>
     );
 }

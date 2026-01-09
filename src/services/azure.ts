@@ -1,366 +1,181 @@
-// Storage keys
-const STORAGE_KEYS = {
-    API_KEY: 'azure_api_key',
-    BASE_URL: 'azure_base_url'
-};
+// Azure OpenAI Service with localStorage-based API key management
 
-// Default base URL (user can change this)
-const DEFAULT_BASE_URL = "https://YOUR-RESOURCE.cognitiveservices.azure.com";
+const STORAGE_KEY = 'azure_openai_config';
 
-// Helper to clean base URL
-const cleanBaseUrl = (url: string): string => {
-    try {
-        // If user pasted a full URL with processing path, strip it
-        if (url.includes('/openai/deployments')) {
-            const urlObj = new URL(url);
-            return `${urlObj.protocol}//${urlObj.hostname}`;
-        }
-        // Remove trailing slash
-        return url.replace(/\/$/, '');
-    } catch (e) {
-        return url;
-    }
-};
+export interface AzureConfig {
+    endpoint: string;
+    apiKey: string;
+    deploymentName: string;
+    speechKey?: string;
+    speechRegion?: string;
+}
 
-// Credential management functions
-export const getStoredCredentials = (): { apiKey: string; baseUrl: string } | null => {
-    const apiKey = localStorage.getItem(STORAGE_KEYS.API_KEY);
-    const baseUrl = localStorage.getItem(STORAGE_KEYS.BASE_URL);
-
-    if (!apiKey || !baseUrl) {
-        return null;
-    }
-
-    return { apiKey, baseUrl };
-};
-
-export const setCredentials = (apiKey: string, baseUrl: string): void => {
-    localStorage.setItem(STORAGE_KEYS.API_KEY, apiKey);
-    localStorage.setItem(STORAGE_KEYS.BASE_URL, baseUrl);
-};
-
-export const hasCredentials = (): boolean => {
-    return getStoredCredentials() !== null;
-};
-
-export const clearCredentials = (): void => {
-    localStorage.removeItem(STORAGE_KEYS.API_KEY);
-    localStorage.removeItem(STORAGE_KEYS.BASE_URL);
-};
-
-// Default deployment names and API version
-const DEFAULT_DEPLOYMENTS = {
-    STT: "gpt-4o-transcribe-diarize",
-    TTS: "gpt-4o-mini-tts",
-    CHAT: "gpt-5.2-chat",
-    API_VERSION: "2025-04-01-preview"
-};
-
-// Helper to determine auth headers based on key format
-const getAuthHeaders = (): Record<string, string> => {
-    const apiKey = getApiKey();
-    // Heuristic: Standard Azure keys are 32 chars (hex). 
-    // If significantly longer (like the 88-char legacy key seen in source), assume it's a token needing Bearer
-    if (apiKey.length > 40) {
-        return { "Authorization": `Bearer ${apiKey}` };
-    }
-    return { "api-key": apiKey };
-};
-
-// Test credential connection
-export const testConnection = async (apiKey: string, baseUrl: string, chatDeployment: string): Promise<boolean> => {
-    try {
-        const cleanedUrl = cleanBaseUrl(baseUrl);
-        const headers: Record<string, string> = apiKey.length > 40
-            ? { "Authorization": `Bearer ${apiKey}` }
-            : { "api-key": apiKey };
-        headers['Content-Type'] = 'application/json';
-
-        // Try a minimal chat completion - this verifies Key, Endpoint, Deployment
-        const response = await fetch(`${cleanedUrl}/openai/deployments/${chatDeployment}/chat/completions?api-version=2024-12-01-preview`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                messages: [{ role: "user", content: "Test" }],
-                max_tokens: 1
-            })
-        });
-
-        return response.ok;
-    } catch (e) {
-        console.error("Connection test failed:", e);
-        return false;
-    }
-};
-
-// Storage key for deployments
-const DEPLOYMENT_STORAGE_KEY = 'azure_deployments';
-
-export const getStoredDeployments = () => {
-    const stored = localStorage.getItem(DEPLOYMENT_STORAGE_KEY);
-    const parsed = stored ? JSON.parse(stored) : {};
-    return { ...DEFAULT_DEPLOYMENTS, ...parsed };
-};
-
-export const setStoredDeployments = (deployments: typeof DEFAULT_DEPLOYMENTS) => {
-    localStorage.setItem(DEPLOYMENT_STORAGE_KEY, JSON.stringify(deployments));
-};
-
-// Get endpoints dynamically based on stored credentials and deployments
-// API versions are per-model based on Azure documentation:
-// - STT/TTS use 2025-03-01-preview
-// - Chat uses 2024-12-01-preview
-const getEndpoints = () => {
-    const credentials = getStoredCredentials();
-    const rawBaseUrl = credentials?.baseUrl || DEFAULT_BASE_URL;
-    const baseUrl = cleanBaseUrl(rawBaseUrl);
-    const deployments = getStoredDeployments();
-
-    return {
-        STT: `${baseUrl}/openai/deployments/${deployments.STT}/audio/transcriptions?api-version=2025-03-01-preview`,
-        TTS: `${baseUrl}/openai/deployments/${deployments.TTS}/audio/speech?api-version=2025-03-01-preview`,
-        CHAT: `${baseUrl}/openai/deployments/${deployments.CHAT}/chat/completions?api-version=2024-12-01-preview`
-    };
-};
-
-// Get API key for requests
-const getApiKey = (): string => {
-    const credentials = getStoredCredentials();
-    return credentials?.apiKey || '';
-};
-
-// Abort controller for canceling ongoing requests
-let currentAbortController: AbortController | null = null;
-
-// Current audio element for stopping playback
-let currentAudio: HTMLAudioElement | null = null;
-
-// Stop all ongoing processing
-export const stopAllProcessing = () => {
-    // Abort any ongoing fetch requests
-    if (currentAbortController) {
-        currentAbortController.abort();
-        currentAbortController = null;
-        console.log('Aborted ongoing requests');
-    }
-
-    // Stop any playing audio
-    if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
-        currentAudio = null;
-        console.log('Stopped audio playback');
-    }
-};
-
-export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
-    const formData = new FormData();
-    // File name required for multipart/form-data
-    formData.append("file", audioBlob, "audio.webm");
-    formData.append("model", "gpt-4o-transcribe-diarize");
-
-    const response = await fetch(getEndpoints().STT, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: formData
-    });
-
-    if (!response.ok) {
-        throw new Error(`STT Error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.text;
-};
-
-export const synthesizeSpeech = async (text: string): Promise<void> => {
-    if (!text || text.trim().length === 0) {
-        console.warn("TTS skipped: Input text is empty");
-        return;
-    }
-
-    console.log("Synthesizing speech for:", text);
-
-    // Create new abort controller for this request
-    currentAbortController = new AbortController();
-
-    try {
-        const response = await fetch(getEndpoints().TTS, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                ...getAuthHeaders()
-            },
-            body: JSON.stringify({
-                model: "gpt-4o-mini-tts",
-                input: text,
-                voice: "alloy",
-                response_format: "mp3"
-            }),
-            signal: currentAbortController.signal
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`TTS Error: ${response.status} ${response.statusText} - ${errorText}`);
-        }
-
-        const audioBlob = await response.blob();
-        console.log("Audio blob received:", audioBlob.type, audioBlob.size);
-
-        if (audioBlob.size === 0) {
-            console.error("Received empty audio blob");
-            return;
-        }
-
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-
-        // Store reference for stop functionality
-        currentAudio = audio;
-
-        // Return a promise that resolves when audio finishes
-        return new Promise((resolve) => {
-            let hasStarted = false;
-
-            audio.onended = () => {
-                console.log("Audio playback finished");
-                currentAudio = null;
-                resolve();
-            };
-
-            audio.onerror = (e) => {
-                console.error("Error loading audio:", e);
-                currentAudio = null;
-                resolve();
-            };
-
-            // Handle when audio is paused (e.g., by stop button)
-            audio.onpause = () => {
-                if (audio.currentTime === 0) {
-                    // Audio was stopped/reset, not just paused
-                    console.log("Audio was stopped");
-                    currentAudio = null;
-                    resolve();
-                }
-            };
-
-            audio.oncanplaythrough = () => {
-                // Only start audio once
-                if (hasStarted) return;
-                hasStarted = true;
-
-                console.log("Audio ready to play");
-                const playPromise = audio.play();
-                if (playPromise !== undefined) {
-                    playPromise
-                        .then(() => console.log("Audio playing started"))
-                        .catch(error => {
-                            console.error("Audio playback interrupted/failed:", error);
-                            currentAudio = null;
-                            resolve();
-                        });
-                }
-            };
-        });
-
-    } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') {
-            console.log('Speech synthesis was aborted');
-        } else {
-            console.error("Synthesize Speech Failed:", error);
-        }
-    }
-};
-
-// Check if audio is currently playing
-export const isAudioPlaying = (): boolean => {
-    return currentAudio !== null && !currentAudio.paused;
-};
-
-// Message type for conversation history
 export interface ChatMessage {
-    role: 'system' | 'user' | 'assistant';
+    role: 'user' | 'assistant' | 'system';
     content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
 }
 
-export const analyzeWithAzure = async (
+export interface AnalysisResult {
+    response: string;
+    newMessage: ChatMessage;
+    assistantMessage: ChatMessage;
+}
+
+// Configuration management
+export function getConfig(): AzureConfig | null {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return null;
+    try {
+        return JSON.parse(stored);
+    } catch {
+        return null;
+    }
+}
+
+export function saveConfig(config: AzureConfig): void {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+}
+
+export function clearConfig(): void {
+    localStorage.removeItem(STORAGE_KEY);
+}
+
+export function isConfigured(): boolean {
+    const config = getConfig();
+    return !!(config?.endpoint && config?.apiKey && config?.deploymentName);
+}
+
+// Azure OpenAI API calls
+export async function analyzeWithAzure(
     imageData: string,
     prompt: string,
-    conversationHistory: ChatMessage[] = []
-): Promise<{ response: string; newMessage: ChatMessage; assistantMessage: ChatMessage }> => {
-    // Create new abort controller for this request
-    currentAbortController = new AbortController();
-
-    // Build user content - include image only if valid
-    const userContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
-        { type: "text", text: prompt }
-    ];
-
-    // Only include image if it's a valid data URL
-    if (imageData && imageData.startsWith('data:')) {
-        userContent.push({ type: "image_url", image_url: { url: imageData } });
+    conversationHistory: ChatMessage[]
+): Promise<AnalysisResult> {
+    const config = getConfig();
+    if (!config) {
+        throw new Error('Azure OpenAI is not configured. Please add your API credentials.');
     }
 
-    // Build messages array with system message, conversation history, and new user message
-    const messages: ChatMessage[] = [
-        {
-            role: "system",
-            content: "You are a helpful creative assistant. Analyze the user's drawing or PDF content and spoken prompt. Provide helpful, concise ideas. Remember the context of the conversation."
-        },
-        ...conversationHistory,
-        {
-            role: "user",
-            content: userContent
-        }
-    ];
+    const { endpoint, apiKey, deploymentName } = config;
 
-    const payload = {
-        messages,
-        max_completion_tokens: 20000
+    // Build the new user message
+    const userContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
+
+    if (imageData) {
+        userContent.push({
+            type: 'image_url',
+            image_url: { url: imageData }
+        });
+    }
+
+    userContent.push({
+        type: 'text',
+        text: prompt
+    });
+
+    const newMessage: ChatMessage = {
+        role: 'user',
+        content: userContent
     };
 
-    const response = await fetch(getEndpoints().CHAT, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
+    // Build messages array with history
+    const messages: ChatMessage[] = [
+        {
+            role: 'system',
+            content: 'You are a helpful AI assistant that analyzes images and provides creative insights. Be concise but thorough.'
         },
-        body: JSON.stringify(payload),
-        signal: currentAbortController.signal
+        ...conversationHistory,
+        newMessage
+    ];
+
+    const url = `${endpoint}/openai/deployments/${deploymentName}/chat/completions?api-version=2024-02-15-preview`;
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'api-key': apiKey
+        },
+        body: JSON.stringify({
+            messages,
+            max_tokens: 1000,
+            temperature: 0.7
+        })
     });
 
     if (!response.ok) {
         const error = await response.text();
-        throw new Error(`Vision Error: ${response.statusText} - ${error}`);
+        throw new Error(`Azure OpenAI API error: ${error}`);
     }
 
     const data = await response.json();
-    console.log("Vision API Response (Full):", JSON.stringify(data, null, 2));
+    const responseText = data.choices[0]?.message?.content || 'No response generated.';
 
-    const choice = data.choices[0];
-    if (!choice) {
-        throw new Error("No choices returned from API");
-    }
-
-    if (choice.finish_reason === 'content_filter') {
-        console.warn("Content filter triggered");
-        return {
-            response: "I cannot describe this image due to safety filters.",
-            newMessage: { role: "user", content: userContent },
-            assistantMessage: { role: "assistant", content: "I cannot describe this image due to safety filters." }
-        };
-    }
-
-    const content = choice.message?.content || choice.message?.refusal || "";
-
-    if (!content) {
-        console.warn("Vision API returned empty content. Finish reason:", choice.finish_reason);
-    }
+    const assistantMessage: ChatMessage = {
+        role: 'assistant',
+        content: responseText
+    };
 
     return {
-        response: content,
-        newMessage: { role: "user", content: userContent },
-        assistantMessage: { role: "assistant", content }
+        response: responseText,
+        newMessage,
+        assistantMessage
     };
-};
+}
+
+// Speech synthesis
+let currentAudio: HTMLAudioElement | null = null;
+
+export async function synthesizeSpeech(text: string): Promise<void> {
+    const config = getConfig();
+    if (!config?.speechKey || !config?.speechRegion) {
+        console.log('Speech synthesis not configured, skipping...');
+        return;
+    }
+
+    const { speechKey, speechRegion } = config;
+
+    const url = `https://${speechRegion}.tts.speech.microsoft.com/cognitiveservices/v1`;
+
+    const ssml = `
+    <speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
+      <voice name='en-US-JennyNeural'>
+        ${text}
+      </voice>
+    </speak>
+  `;
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Ocp-Apim-Subscription-Key': speechKey,
+            'Content-Type': 'application/ssml+xml',
+            'X-Microsoft-OutputFormat': 'audio-16khz-128kbitrate-mono-mp3'
+        },
+        body: ssml
+    });
+
+    if (!response.ok) {
+        console.error('Speech synthesis failed:', await response.text());
+        return;
+    }
+
+    const audioBlob = await response.blob();
+    const audioUrl = URL.createObjectURL(audioBlob);
+
+    // Stop any currently playing audio
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+    }
+
+    currentAudio = new Audio(audioUrl);
+    await currentAudio.play();
+}
+
+export function stopAllProcessing(): void {
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+    }
+}
